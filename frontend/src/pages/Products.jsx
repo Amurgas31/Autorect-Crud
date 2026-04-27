@@ -259,7 +259,7 @@ function Products() {
   const [products, setProducts] = useState([]); // Empezamos vacío
   const [loading, setLoading] = useState(true); // Estado de carga inicial
 
-/*   const [products, setProducts] = useState(initialProducts);
+  /*   const [products, setProducts] = useState(initialProducts);
   const [loading] = useState(false); */
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -277,7 +277,45 @@ function Products() {
 
   const rowsPerPage = 10;
 
+  const fetchProducts = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(API_URL, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+
+      if (!response.ok) throw new Error("Error al obtener productos");
+
+      const data = await response.json();
+
+      // Si tu API devuelve el array directamente:
+      if (Array.isArray(data)) {
+        setProducts(data);
+      }
+      // Si tu API devuelve un objeto como { products: [...] }:
+      else if (data && Array.isArray(data.products)) {
+        setProducts(data.products);
+      } else {
+        console.error("La API no devolvió un array:", data);
+        setProducts([]); // Fallback a array vacío
+      }
+    } catch (error) {
+      toast.error(error.message);
+      setProducts([]); // Evita que la app truene si hay error de red
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
   const filteredProducts = useMemo(() => {
+    // Si products no existe o no es array, devolvemos vacío de inmediato
+    if (!Array.isArray(products) || products.length === 0) return [];
     const term = searchText.trim().toLowerCase();
 
     const matches = products.filter((item) => {
@@ -329,11 +367,15 @@ function Products() {
     return filteredProducts.slice(start, start + rowsPerPage);
   }, [currentPage, filteredProducts]);
 
-  const topCount = products.filter((item) => item.status === "top").length;
-  const stableCount = products.filter(
+  const topCount = (products || []).filter(
+    (item) => item.status === "top"
+  ).length;
+  const stableCount = (products || []).filter(
     (item) => item.status === "stable"
   ).length;
-  const lowCount = products.filter((item) => item.status === "low").length;
+  const lowCount = (products || []).filter(
+    (item) => item.status === "low"
+  ).length;
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -383,31 +425,32 @@ function Products() {
     setIsEditOpen(true);
   };
 
-  const handleCreateSubmit = (event) => {
+  const handleCreateSubmit = async (event) => {
     event.preventDefault();
     const errors = validateProductForm(createForm);
     setCreateErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
-    if (Object.keys(errors).length > 0) {
-      return;
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...createForm,
+          stock: Number(createForm.stock),
+          price: Number(createForm.price),
+        }),
+      });
+
+      if (!response.ok) throw new Error("No se pudo crear el producto");
+
+      toast.success("Producto creado");
+      setIsCreateOpen(false);
+      setCreateForm(emptyProductForm);
+      fetchProducts(); // Recargamos la lista desde la API
+    } catch (error) {
+      toast.error(error.message);
     }
-
-    const payload = {
-      id: `PRD-${String(Date.now()).slice(-6)}`,
-      name: createForm.name.trim(),
-      category: createForm.category.trim() || "General",
-      stock: Number(createForm.stock) || 0,
-      price: Number(createForm.price) || 0,
-      status: createForm.status,
-      sku: createForm.sku.trim() || "N/A",
-      supplier: createForm.supplier.trim() || "N/A",
-    };
-
-    setProducts((prev) => [payload, ...prev]);
-    setCreateForm(emptyProductForm);
-    setCreateErrors({});
-    setIsCreateOpen(false);
-    toast.success("Producto creado correctamente");
   };
 
   const handleEditSubmit = (event) => {
