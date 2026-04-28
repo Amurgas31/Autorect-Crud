@@ -57,128 +57,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const initialProducts = [
-  {
-    id: "PRD-001",
-    name: "Laptop X13",
-    category: "Tecnologia",
-    stock: 12,
-    price: 1299,
-    status: "top",
-    sku: "LPX13-001",
-    supplier: "TechCore",
-  },
-  {
-    id: "PRD-002",
-    name: "Mouse Pro",
-    category: "Accesorios",
-    stock: 36,
-    price: 39,
-    status: "stable",
-    sku: "MPR-011",
-    supplier: "NovaGear",
-  },
-  {
-    id: "PRD-003",
-    name: 'Monitor 27"',
-    category: "Pantallas",
-    stock: 8,
-    price: 349,
-    status: "low",
-    sku: "MON27-022",
-    supplier: "VisionLab",
-  },
-  {
-    id: "PRD-004",
-    name: "Teclado MK",
-    category: "Accesorios",
-    stock: 20,
-    price: 79,
-    status: "stable",
-    sku: "TKMK-014",
-    supplier: "NovaGear",
-  },
-  {
-    id: "PRD-005",
-    name: "Webcam 4K",
-    category: "Video",
-    stock: 9,
-    price: 119,
-    status: "low",
-    sku: "W4K-009",
-    supplier: "MediaFlow",
-  },
-  {
-    id: "PRD-006",
-    name: "Dock USB-C",
-    category: "Conectividad",
-    stock: 17,
-    price: 89,
-    status: "stable",
-    sku: "DUC-103",
-    supplier: "LinkBridge",
-  },
-  {
-    id: "PRD-007",
-    name: "SSD 1TB",
-    category: "Almacenamiento",
-    stock: 14,
-    price: 129,
-    status: "top",
-    sku: "SSD1-200",
-    supplier: "DataCore",
-  },
-  {
-    id: "PRD-008",
-    name: "Auriculares Pro",
-    category: "Audio",
-    stock: 22,
-    price: 99,
-    status: "stable",
-    sku: "AUP-017",
-    supplier: "SoundPeak",
-  },
-  {
-    id: "PRD-009",
-    name: "Hub 7 en 1",
-    category: "Conectividad",
-    stock: 7,
-    price: 59,
-    status: "low",
-    sku: "HUB7-081",
-    supplier: "LinkBridge",
-  },
-  {
-    id: "PRD-010",
-    name: "Silla Ergo",
-    category: "Mobiliario",
-    stock: 11,
-    price: 249,
-    status: "top",
-    sku: "SER-541",
-    supplier: "OfficeLine",
-  },
-  {
-    id: "PRD-011",
-    name: "Router AX",
-    category: "Redes",
-    stock: 16,
-    price: 189,
-    status: "stable",
-    sku: "RAX-300",
-    supplier: "NetCore",
-  },
-  {
-    id: "PRD-012",
-    name: "Base Vertical",
-    category: "Accesorios",
-    stock: 5,
-    price: 49,
-    status: "low",
-    sku: "BVE-105",
-    supplier: "NovaGear",
-  },
-];
+import { useAuth } from "@/hooks/useAuth"; // Hook personalizado para autenticación
+
+const TOKEN_KEY = "accessToken"; // Clave para almacenar el token de acceso en localStorage
+
+const getStoredToken = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY); // Función para obtener el token almacenado en localStorage
 
 const emptyProductForm = {
   name: "",
@@ -246,16 +129,31 @@ const validateProductForm = (form) => {
   } else if (Number(form.price) <= 0) {
     errors.price = "El precio debe ser mayor a 0";
   }
-  if (!form.status) {
-    errors.status = "El estado es requerido";
-  }
-
   return errors;
 };
 
+
+// ☆ Normalización de producto: convierte el producto recibido del backend a un formato consistente para el frontend
+const normalizeProduct = (product = {}) => ({
+  id: product._id || product.id || "",
+  name: product.name || "",
+  description: product.description || "",
+  stock: Number(product.stock || 0),
+  // IMPORTANTE: Para Decimal128 de MongoDB, a veces llega como { $numberDecimal: "10.00" }
+  price: product.price?.$numberDecimal
+    ? parseFloat(product.price.$numberDecimal)
+    : Number(product.price || 0),
+});
+
 function Products() {
+
+  // ☆ Obtener la URL de la API y la función de logout desde el hook de autenticación
+  const { API, logout } = useAuth();
+
+  // ☆ Definir la URL base de la API para productos.
   const API_URL = "http://localhost:4000/api/products";
 
+  // ☆ Estado para almacenar la lista de productos obtenidos del backend. Empezamos con un array vacío para no cargar los datos quemados.
   const [products, setProducts] = useState([]); // Empezamos vacío
   const [loading, setLoading] = useState(true); // Estado de carga inicial
 
@@ -280,30 +178,38 @@ function Products() {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const response = await fetch(API_URL, {
+      const token = getStoredToken(); // Usamos la función de arriba
+
+      if (!token) {
+        // Si no hay token, no seguimos para evitar el 401 innecesario
+        console.warn("No se encontró token de acceso");
+        return;
+      }
+
+      const response = await fetch(`${API}/products`, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}` // Asegúrate de que lleva la palabra 'Bearer '
+        },
         credentials: "include",
       });
 
-      if (!response.ok) throw new Error("Error al obtener productos");
-
-      const data = await response.json();
-
-      // Si tu API devuelve el array directamente:
-      if (Array.isArray(data)) {
-        setProducts(data);
+      if (response.status === 401) {
+        toast.error("Sesión expirada");
+        await logout({ reason: "expired", callApi: false });
+        return;
       }
-      // Si tu API devuelve un objeto como { products: [...] }:
-      else if (data && Array.isArray(data.products)) {
-        setProducts(data.products);
-      } else {
-        console.error("La API no devolvió un array:", data);
-        setProducts([]); // Fallback a array vacío
-      }
+
+      const payload = await response.json();
+
+      // Usamos payload.data porque así lo vimos en el Dashboard
+      const result = Array.isArray(payload?.data) ? payload.data.map(normalizeProduct) : [];
+      setProducts(result);
+
     } catch (error) {
-      toast.error(error.message);
-      setProducts([]); // Evita que la app truene si hay error de red
+      console.error("Error en el fetch:", error);
+      setProducts([]);
     } finally {
       setLoading(false);
     }
@@ -314,23 +220,28 @@ function Products() {
   }, []);
 
   const filteredProducts = useMemo(() => {
-    // Si products no existe o no es array, devolvemos vacío de inmediato
     if (!Array.isArray(products) || products.length === 0) return [];
+
     const term = searchText.trim().toLowerCase();
 
     const matches = products.filter((item) => {
-      const bySearch =
-        !term ||
-        item.name.toLowerCase().includes(term) ||
-        item.category.toLowerCase().includes(term) ||
-        item.id.toLowerCase().includes(term) ||
-        item.supplier.toLowerCase().includes(term) ||
-        item.sku.toLowerCase().includes(term);
+      // ☆ 1. Buscamos coincidencias en Nombre e ID (que siempre existen)
+      const nameMatch = item.name?.toLowerCase().includes(term);
+      const idMatch = item.id?.toString().toLowerCase().includes(term);
 
+      // ☆ 2. Buscamos en la descripción (opcional)
+      const descriptionMatch = item.description?.toLowerCase().includes(term);
+
+      // ☆ 3. Si quieres que busque también en categoría, asegúrate de que el campo exista
+      const categoryMatch = item.category?.toLowerCase().includes(term);
+
+      // Combinamos las búsquedas: si el término está en cualquiera de esos campos, es un match
+      const bySearch = !term || nameMatch || idMatch || descriptionMatch || categoryMatch;
+
+      // Filtros adicionales (Estado y Categoría de los selectores)
       const byStatus = statusFilter === "all" || item.status === statusFilter;
-      const byCategory =
-        categoryFilter === "all" ||
-        item.category.toLowerCase() === categoryFilter;
+      const byCategory = categoryFilter === "all" ||
+        item.category?.toLowerCase() === categoryFilter.toLowerCase();
 
       return bySearch && byStatus && byCategory;
     });
@@ -405,15 +316,41 @@ function Products() {
     setDeleteTarget(product);
   };
 
-  const confirmDelete = () => {
-    if (!deleteTarget) {
-      return;
-    }
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
 
-    setProducts((prev) => prev.filter((item) => item.id !== deleteTarget.id));
-    setExpandedRowId((prev) => (prev === deleteTarget.id ? null : prev));
-    setDeleteTarget(null);
-    toast.success("Producto eliminado correctamente");
+    try {
+      const token = getStoredToken();
+
+      const response = await fetch(`${API}/products/${deleteTarget.id}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        toast.error("Sesión expirada");
+        await logout({ reason: "expired", callApi: false });
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "No se pudo eliminar el producto");
+      }
+
+      // Éxito: Actualizamos el estado local para que desaparezca de inmediato
+      setProducts((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      setExpandedRowId((prev) => (prev === deleteTarget.id ? null : prev));
+      setDeleteTarget(null);
+      toast.success("Producto eliminado permanentemente");
+
+    } catch (error) {
+      console.error("Error en DELETE:", error);
+      toast.error(error.message);
+      setDeleteTarget(null); // Cerramos el modal de todas formas si hubo error
+    }
   };
 
   const openEditModal = (product) => {
@@ -427,67 +364,121 @@ function Products() {
 
   const handleCreateSubmit = async (event) => {
     event.preventDefault();
+
+    // ☆ 1. Validamos los errores del formulario de creación
     const errors = validateProductForm(createForm);
     setCreateErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     try {
-      const response = await fetch(API_URL, {
+      const token = getStoredToken();
+
+      // ☆ 2. Petición POST a la API
+      const response = await fetch(`${API}/products`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
         body: JSON.stringify({
-          ...createForm,
+          name: createForm.name.trim(),
+          category: createForm.category,
           stock: Number(createForm.stock),
           price: Number(createForm.price),
+          status: createForm.status,
+          sku: createForm.sku.trim(),
+          supplier: createForm.supplier.trim(),
+          // Si tu backend requiere 'description', agrégala aquí aunque sea vacía
+          description: "",
         }),
       });
 
-      if (!response.ok) throw new Error("No se pudo crear el producto");
+      // ☆ 3. Manejo de autorización
+      if (response.status === 401) {
+        toast.error("Sesión expirada");
+        await logout({ reason: "expired", callApi: false });
+        return;
+      }
 
-      toast.success("Producto creado");
-      setIsCreateOpen(false);
-      setCreateForm(emptyProductForm);
-      fetchProducts(); // Recargamos la lista desde la API
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Error al crear el producto");
+      }
+
+      // ☆ 4. Éxito
+      toast.success("Producto creado exitosamente en AutoRect");
+      setIsCreateOpen(false); // Cerramos el modal
+      setCreateForm(emptyProductForm); // Limpiamos el formulario
+      setCreateErrors({});
+      fetchProducts(); // Recargamos la tabla para ver el nuevo producto
+
     } catch (error) {
+      console.error("Error en POST:", error);
       toast.error(error.message);
     }
   };
-
-  const handleEditSubmit = (event) => {
+  const handleEditSubmit = async (event) => {
     event.preventDefault();
+
     const errors = validateProductForm(editForm);
     setEditErrors(errors);
 
     if (Object.keys(errors).length > 0) {
+      console.log("Errores de validación:", errors);
+      toast.error("Revisa los campos del formulario");
       return;
     }
 
-    setProducts((prev) =>
-      prev.map((item) =>
-        item.id === editForm.id
-          ? {
-              ...item,
-              name: editForm.name.trim(),
-              category: editForm.category.trim() || "General",
-              stock: Number(editForm.stock) || 0,
-              price: Number(editForm.price) || 0,
-              status: editForm.status,
-              sku: editForm.sku.trim() || "N/A",
-              supplier: editForm.supplier.trim() || "N/A",
-            }
-          : item
-      )
-    );
+    // Si el ID no existe, algo salió mal al abrir el modal
+    if (!editForm.id) {
+      toast.error("Error: ID del producto no encontrado");
+      return;
+    }
 
-    setIsEditOpen(false);
-    setEditErrors({});
-    toast.success("Producto actualizado correctamente");
+    try {
+      const token = getStoredToken();
+
+      const response = await fetch(`${API}/products/${editForm.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          description: editForm.description.trim(), // Aseguramos que la descripción se guarde
+          category: editForm.category,
+          stock: Number(editForm.stock),
+          price: Number(editForm.price)
+        }),
+      });
+
+      if (response.status === 401) {
+        toast.error("Sesión expirada");
+        await logout({ reason: "expired", callApi: false });
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Error al actualizar el producto");
+      }
+
+      toast.success("Producto actualizado correctamente");
+      setIsEditOpen(false);
+      setEditErrors({});
+      fetchProducts(); // Recargamos la lista desde el backend
+
+    } catch (error) {
+      console.error("Error en PUT:", error);
+      toast.error(error.message);
+    }
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 pb-3">
       <div className="space-y-3 rounded-[28px] border border-white/8 bg-black/20 px-4 py-4 shadow-[0_16px_45px_rgba(0,0,0,0.18)] backdrop-blur-sm">
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_220px_220px_230px_auto]">
+        <div className="grid gap-3 xl:grid-cols-[1fr_220px_auto]">
           <InputGroup className="h-10 rounded-full border-white/15 bg-black/25 text-white shadow-none">
             <InputGroupAddon className="pl-4 text-white/35">
               <Search className="h-4 w-4" />
@@ -495,102 +486,27 @@ function Products() {
             <InputGroupInput
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Buscar por nombre, categoria, proveedor, SKU o ID..."
+              placeholder="Buscar por nombre o descripción..."
               className="h-10 rounded-full border-0 bg-transparent text-white placeholder:text-white/35"
-              aria-label="Buscar productos"
             />
           </InputGroup>
-
-          <Combobox
-            value={categoryFilter}
-            onValueChange={setCategoryFilter}
-            options={categoryFilterOptions}
-            placeholder="Filtrar por categoria"
-            searchPlaceholder="Buscar categoria..."
-            icon={<Box className="h-4 w-4" />}
-          />
-
-          <Combobox
-            value={statusFilter}
-            onValueChange={setStatusFilter}
-            options={statusFilterOptions}
-            placeholder="Filtrar por estado"
-            searchPlaceholder="Buscar estado..."
-            icon={<ChevronDown className="h-4 w-4" />}
-          />
 
           <Combobox
             value={sortBy}
             onValueChange={setSortBy}
             options={sortOptions}
             placeholder="Ordenar por"
-            searchPlaceholder="Buscar orden..."
             icon={<ArrowUpDown className="h-4 w-4" />}
           />
 
           <Button
             variant="outline"
-            className="h-10 rounded-full border-[#822727]/70 bg-transparent px-4 text-sm font-semibold text-white hover:bg-[#822727]/15 hover:text-white"
+            className="h-10 rounded-full border-[#822727]/70 bg-transparent px-4 text-sm font-semibold text-white hover:bg-[#822727]/15"
             onClick={() => setIsCreateOpen(true)}
           >
             <Plus className="h-4 w-4" />
             Nuevo producto
           </Button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4 border-b border-white/10 pb-2">
-          {[
-            { key: "all", label: "Todos", count: products.length },
-            { key: "top", label: "Top", count: topCount },
-            { key: "stable", label: "Estables", count: stableCount },
-            { key: "low", label: "Stock bajo", count: lowCount },
-          ].map((item) => {
-            const isActive = statusFilter === item.key;
-
-            return (
-              <button
-                key={item.key}
-                type="button"
-                className={`inline-flex items-center gap-2 border-b-2 px-1 py-1 text-sm font-semibold transition-colors ${
-                  isActive
-                    ? "border-[#822727] text-white"
-                    : "border-transparent text-white/55 hover:text-white"
-                }`}
-                onClick={() => setStatusFilter(item.key)}
-              >
-                {item.label}
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    isActive
-                      ? "bg-[#822727] text-white"
-                      : "bg-white/10 text-white/75"
-                  }`}
-                >
-                  {item.count}
-                </span>
-              </button>
-            );
-          })}
-
-          <div className="ml-auto text-xs text-white/45">
-            {filteredProducts.length} resultados
-          </div>
-
-          {hasActiveFilters ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-8 rounded-full px-3 text-white/60 hover:bg-white/10 hover:text-white"
-              onClick={() => {
-                setSearchText("");
-                setStatusFilter("all");
-                setCategoryFilter("all");
-                setSortBy("name-asc");
-              }}
-            >
-              Limpiar
-            </Button>
-          ) : null}
         </div>
       </div>
 
@@ -599,665 +515,216 @@ function Products() {
           <div className="scrollbar-invisible min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-[#151515]">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-[#151515]">
-                <TableRow className="border-white/10 bg-[#151515] hover:bg-[#151515]">
-                  <TableHead className="w-12 text-white/45">
-                    <Checkbox aria-label="Seleccionar todos" />
-                  </TableHead>
-                  <TableHead className="text-white/45">ID No.</TableHead>
+                <TableRow className="border-white/10 hover:bg-transparent">
+                  <TableHead className="w-12 text-white/45">#</TableHead>
                   <TableHead className="text-white/45">Producto</TableHead>
-                  <TableHead className="text-white/45">Categoria</TableHead>
-                  <TableHead className="text-white/45">Proveedor</TableHead>
+                  <TableHead className="text-white/45">Descripción</TableHead>
                   <TableHead className="text-white/45">Precio</TableHead>
+                  <TableHead className="text-white/45">Stock</TableHead>
                   <TableHead className="text-white/45">Estado</TableHead>
-                  <TableHead className="w-32 text-right text-white/45">
-                    Acciones
-                  </TableHead>
+                  <TableHead className="w-32 text-right text-white/45">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading
-                  ? Array.from({ length: 6 }, (_, index) => (
-                      <TableRow
-                        key={`loading-row-${index}`}
-                        className="border-white/10"
-                      >
-                        <TableCell>
-                          <Skeleton className="h-4 w-4 rounded-sm bg-white/10" />
-                        </TableCell>
-                        <TableCell>
-                          <Skeleton className="h-4 w-16 bg-white/10" />
-                        </TableCell>
-                        <TableCell>
-                          <Skeleton className="h-4 w-32 bg-white/10" />
-                        </TableCell>
-                        <TableCell>
-                          <Skeleton className="h-4 w-24 bg-white/10" />
-                        </TableCell>
-                        <TableCell>
-                          <Skeleton className="h-4 w-32 bg-white/10" />
-                        </TableCell>
-                        <TableCell>
-                          <Skeleton className="h-4 w-20 bg-white/10" />
-                        </TableCell>
-                        <TableCell>
-                          <Skeleton className="h-6 w-20 rounded-full bg-white/10" />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Skeleton className="h-8 w-8 rounded-md bg-white/10" />
-                            <Skeleton className="h-8 w-8 rounded-md bg-white/10" />
-                            <Skeleton className="h-8 w-8 rounded-md bg-white/10" />
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  : null}
-
-                {!loading && paginatedProducts.length === 0 ? (
-                  <TableRow className="border-white/10">
-                    <TableCell
-                      colSpan={8}
-                      className="py-8 text-center text-white/55"
-                    >
-                      No hay productos para mostrar.
+                {!loading && paginatedProducts.map((item, index) => (
+                  <TableRow key={item.id} className="border-white/10 hover:bg-white/4">
+                    <TableCell className="text-white/65">
+                      {(currentPage - 1) * rowsPerPage + index + 1}
+                    </TableCell>
+                    <TableCell className="font-medium text-white">
+                      <span className="inline-flex items-center gap-2">
+                        <Box className="h-4 w-4 text-[#822727]" />
+                        {item.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-white/65 truncate max-w-[200px]">
+                      {item.description || "Sin descripción"}
+                    </TableCell>
+                    <TableCell className="text-white/65">
+                      {formatPrice(item.price)}
+                    </TableCell>
+                    <TableCell className="text-white/65">
+                      {item.stock} unidades
+                    </TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.stock <= 5
+                        ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                        : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                        }`}>
+                        {item.stock <= 5 ? "Stock bajo" : "Disponible"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-8 w-8 rounded-md border border-white/15 text-white/70 hover:bg-white/10"
+                          onClick={() => openEditModal(item)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-8 w-8 rounded-md border border-[#822727]/35 bg-[#822727]/10 text-[#ff8f8f] hover:bg-[#822727]/20"
+                          onClick={() => requestDelete(item)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
-                ) : null}
-
-                {paginatedProducts.map((item, index) => {
-                  const cardinalId =
-                    (currentPage - 1) * rowsPerPage + index + 1;
-
-                  return (
-                    <Fragment key={`${item.id}-group`}>
-                      <TableRow
-                        className={`border-white/10 hover:bg-white/4 ${
-                          expandedRowId === item.id ? "bg-white/4" : ""
-                        }`}
-                      >
-                        <TableCell>
-                          <Checkbox aria-label={`Seleccionar ${item.name}`} />
-                        </TableCell>
-                        <TableCell className="text-white/65">
-                          {cardinalId}
-                        </TableCell>
-                        <TableCell className="font-medium text-white">
-                          <span className="inline-flex items-center gap-2">
-                            <Box className="h-4 w-4 text-[#822727]" />
-                            {item.name}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-white/65">
-                          {item.category}
-                        </TableCell>
-                        <TableCell className="text-white/65">
-                          {item.supplier}
-                        </TableCell>
-                        <TableCell className="text-white/65">
-                          {formatPrice(item.price)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={`${badgeCellClassName} ${
-                              item.status === "top"
-                                ? "border-white/30 bg-white text-black"
-                                : "border-white/15 bg-transparent text-white/75"
-                            }`}
-                          >
-                            {statusLabelMap[item.status]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="w-32 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="h-8 w-8 rounded-md border border-white/15 bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
-                              onClick={() => toggleExpandRow(item.id)}
-                            >
-                              {expandedRowId === item.id ? (
-                                <ChevronUp className="h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="h-8 w-8 rounded-md border border-white/15 bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
-                              onClick={() => openEditModal(item)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="h-8 w-8 rounded-md border border-[#822727]/35 bg-[#822727]/10 text-[#ff8f8f] hover:bg-[#822727]/20 hover:text-[#ffb6b6]"
-                              onClick={() => requestDelete(item)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-
-                      {expandedRowId === item.id ? (
-                        <TableRow className="border-white/10 bg-white/4">
-                          <TableCell colSpan={8}>
-                            <div className="grid gap-2 sm:grid-cols-3">
-                              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                                <p className="text-[11px] uppercase tracking-wider text-white/40">
-                                  ID
-                                </p>
-                                <p className="mt-1 text-sm text-white">
-                                  {cardinalId}
-                                </p>
-                              </div>
-                              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                                <p className="text-[11px] uppercase tracking-wider text-white/40">
-                                  SKU
-                                </p>
-                                <p className="mt-1 text-sm text-white">
-                                  {item.sku || "N/A"}
-                                </p>
-                              </div>
-                              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                                <p className="text-[11px] uppercase tracking-wider text-white/40">
-                                  Stock
-                                </p>
-                                <p className="mt-1 text-sm text-white">
-                                  {item.stock}
-                                </p>
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
+                ))}
               </TableBody>
             </Table>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5">
-            <p className="text-xs text-white/55">
-              {filteredProducts.length === 0
-                ? "Mostrando 0 de 0"
-                : `Mostrando ${(currentPage - 1) * rowsPerPage + 1}-${Math.min(
-                    currentPage * rowsPerPage,
-                    filteredProducts.length
-                  )} de ${filteredProducts.length}`}
-            </p>
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 rounded-full border-white/15 bg-transparent px-3 text-sm text-white/70 hover:bg-white/10 hover:text-white"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-              >
-                Anterior
-              </Button>
-
-              {Array.from({ length: totalPages }, (_, index) => index + 1).map(
-                (page) => (
-                  <Button
-                    key={page}
-                    type="button"
-                    variant="outline"
-                    className={`h-9 min-w-9 rounded-full border px-3 text-sm ${
-                      currentPage === page
-                        ? "border-[#822727] bg-[#822727] text-white hover:bg-[#9b2f2f]"
-                        : "border-white/15 bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
-                    }`}
-                    onClick={() => setCurrentPage(page)}
-                  >
-                    {page}
-                  </Button>
-                )
-              )}
-
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 rounded-full border-white/15 bg-transparent px-3 text-sm text-white/70 hover:bg-white/10 hover:text-white"
-                disabled={currentPage === totalPages}
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(totalPages, prev + 1))
-                }
-              >
-                Siguiente
-              </Button>
-            </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* MODAL CREAR: Solo campos del model */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border border-white/10 bg-[#161616] text-white sm:max-w-xl">
+        <DialogContent className="border border-white/10 bg-[#161616] text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Nuevo producto</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Ejemplo local sin API: crea un producto de prueba en memoria.
-            </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleCreateSubmit}>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="create-name">Nombre</Label>
-                <Input
-                  id="create-name"
-                  className="h-11"
-                  autoComplete="off"
-                  value={createForm.name}
-                  onChange={(event) => {
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      name: event.target.value,
-                    }));
-                    if (createErrors.name)
-                      setCreateErrors((prev) => ({ ...prev, name: "" }));
-                  }}
-                  placeholder="Ej. Laptop X14"
-                  aria-invalid={!!createErrors.name}
-                />
-                {createErrors.name && (
-                  <p className="text-xs text-red-500">{createErrors.name}</p>
-                )}
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-name">Nombre del producto</Label>
+              <Input
+                id="create-name"
+                className="h-11"
+                value={createForm.name}
+                onChange={(e) => setCreateForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Ej. Laptop X14"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-description">Descripción (Opcional)</Label>
+              <textarea
+                id="create-description"
+                className="flex w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm"
+                rows={3}
+                value={createForm.description}
+                onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="create-category">Categoria</Label>
+                <Label htmlFor="create-price">Precio</Label>
                 <Input
-                  id="create-category"
+                  id="create-price"
+                  type="number"
+                  step="0.01"
                   className="h-11"
-                  autoComplete="off"
-                  value={createForm.category}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      category: event.target.value,
-                    }))
-                  }
-                  placeholder="Ej. Tecnologia"
+                  value={createForm.price}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, price: e.target.value }))}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="create-stock">Stock</Label>
                 <Input
                   id="create-stock"
-                  className="h-11"
                   type="number"
-                  min="0"
+                  className="h-11"
                   value={createForm.stock}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      stock: event.target.value,
-                    }))
-                  }
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, stock: e.target.value }))}
                 />
               </div>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="create-price">Precio (USD)</Label>
-                <Input
-                  id="create-price"
-                  className="h-11"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={createForm.price}
-                  onChange={(event) => {
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      price: event.target.value,
-                    }));
-                    if (createErrors.price)
-                      setCreateErrors((prev) => ({ ...prev, price: "" }));
-                  }}
-                  placeholder="0.00"
-                  aria-invalid={!!createErrors.price}
-                />
-                {createErrors.price && (
-                  <p className="text-xs text-red-500">{createErrors.price}</p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="create-status">Estado</Label>
-                <Select
-                  value={createForm.status}
-                  onValueChange={(value) => {
-                    setCreateForm((prev) => ({ ...prev, status: value }));
-                    if (createErrors.status)
-                      setCreateErrors((prev) => ({ ...prev, status: "" }));
-                  }}
-                >
-                  <SelectTrigger
-                    id="create-status"
-                    size="lg"
-                    style={{
-                      height: "44px",
-                      paddingTop: "10px",
-                      paddingBottom: "10px",
-                    }}
-                    className="rounded-lg border-white/10 bg-black/20 text-white"
-                    aria-invalid={!!createErrors.status}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="border-white/10 bg-[#161616]">
-                    <SelectItem
-                      value="top"
-                      className="text-white cursor-pointer hover:bg-white/10"
-                    >
-                      Top
-                    </SelectItem>
-                    <SelectItem
-                      value="stable"
-                      className="text-white cursor-pointer hover:bg-white/10"
-                    >
-                      Estable
-                    </SelectItem>
-                    <SelectItem
-                      value="low"
-                      className="text-white cursor-pointer hover:bg-white/10"
-                    >
-                      Bajo
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                {createErrors.status && (
-                  <p className="text-xs text-red-500">{createErrors.status}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="create-sku">SKU</Label>
-                <Input
-                  id="create-sku"
-                  className="h-11"
-                  autoComplete="off"
-                  value={createForm.sku}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      sku: event.target.value,
-                    }))
-                  }
-                  placeholder="SKU-001"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="create-supplier">Proveedor</Label>
-                <Input
-                  id="create-supplier"
-                  className="h-11"
-                  autoComplete="off"
-                  value={createForm.supplier}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      supplier: event.target.value,
-                    }))
-                  }
-                  placeholder="Proveedor"
-                />
-              </div>
-            </div>
-
-            <Separator className="bg-white/10" />
-
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 px-5 text-black"
-                onClick={() => setIsCreateOpen(false)}
-              >
+            <div className="flex justify-end gap-2 pt-4">
+              <Button type="button" variant="outline" className="text-black" onClick={() => setIsCreateOpen(false)}>
                 Cancelar
               </Button>
-              <Button
-                type="submit"
-                className="h-11 bg-[#822727] px-5 text-base hover:bg-[#9b2f2f]"
-              >
-                Guardar producto
+              <Button type="submit" className="bg-[#822727] hover:bg-[#9b2f2f]">
+                Guardar
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* MODAL EDITAR: Solo campos del model */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="border border-white/10 bg-[#161616] text-white sm:max-w-xl">
+        <DialogContent className="border border-white/10 bg-[#161616] text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Editar producto</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Ejemplo local sin API: edita y guarda cambios en memoria.
-            </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleEditSubmit}>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="edit-name">Nombre</Label>
-                <Input
-                  id="edit-name"
-                  className="h-11"
-                  autoComplete="off"
-                  value={editForm.name}
-                  onChange={(event) => {
-                    setEditForm((prev) => ({
-                      ...prev,
-                      name: event.target.value,
-                    }));
-                    if (editErrors.name)
-                      setEditErrors((prev) => ({ ...prev, name: "" }));
-                  }}
-                  aria-invalid={!!editErrors.name}
-                />
-                {editErrors.name && (
-                  <p className="text-xs text-red-500">{editErrors.name}</p>
-                )}
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-name">Nombre</Label>
+              <Input
+                id="edit-name"
+                className="h-11"
+                value={editForm.name}
+                onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-description">Descripción</Label>
+              <textarea
+                id="edit-description"
+                className="flex w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm"
+                rows={3}
+                value={editForm.description}
+                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="edit-category">Categoria</Label>
+                <Label htmlFor="edit-price">Precio</Label>
                 <Input
-                  id="edit-category"
+                  id="edit-price"
+                  type="number"
+                  step="0.01"
                   className="h-11"
-                  autoComplete="off"
-                  value={editForm.category}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      category: event.target.value,
-                    }))
-                  }
+                  value={editForm.price}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, price: e.target.value }))}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="edit-stock">Stock</Label>
                 <Input
                   id="edit-stock"
-                  className="h-11"
                   type="number"
-                  min="0"
+                  className="h-11"
                   value={editForm.stock}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      stock: event.target.value,
-                    }))
-                  }
+                  onChange={(e) => setEditForm(prev => ({ ...prev, stock: e.target.value }))}
                 />
               </div>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-price">Precio (USD)</Label>
-                <Input
-                  id="edit-price"
-                  className="h-11"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editForm.price}
-                  onChange={(event) => {
-                    setEditForm((prev) => ({
-                      ...prev,
-                      price: event.target.value,
-                    }));
-                    if (editErrors.price)
-                      setEditErrors((prev) => ({ ...prev, price: "" }));
-                  }}
-                  aria-invalid={!!editErrors.price}
-                />
-                {editErrors.price && (
-                  <p className="text-xs text-red-500">{editErrors.price}</p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-status">Estado</Label>
-                <Select
-                  value={editForm.status}
-                  onValueChange={(value) => {
-                    setEditForm((prev) => ({ ...prev, status: value }));
-                    if (editErrors.status)
-                      setEditErrors((prev) => ({ ...prev, status: "" }));
-                  }}
-                >
-                  <SelectTrigger
-                    id="edit-status"
-                    size="lg"
-                    style={{
-                      height: "44px",
-                      paddingTop: "10px",
-                      paddingBottom: "10px",
-                    }}
-                    className="rounded-lg border-white/10 bg-black/20 text-white"
-                    aria-invalid={!!editErrors.status}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="border-white/10 bg-[#161616]">
-                    <SelectItem
-                      value="top"
-                      className="text-white cursor-pointer hover:bg-white/10"
-                    >
-                      Top
-                    </SelectItem>
-                    <SelectItem
-                      value="stable"
-                      className="text-white cursor-pointer hover:bg-white/10"
-                    >
-                      Estable
-                    </SelectItem>
-                    <SelectItem
-                      value="low"
-                      className="text-white cursor-pointer hover:bg-white/10"
-                    >
-                      Bajo
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                {editErrors.status && (
-                  <p className="text-xs text-red-500">{editErrors.status}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-sku">SKU</Label>
-                <Input
-                  id="edit-sku"
-                  className="h-11"
-                  value={editForm.sku}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      sku: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-supplier">Proveedor</Label>
-                <Input
-                  id="edit-supplier"
-                  className="h-11"
-                  value={editForm.supplier}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      supplier: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </div>
-
-            <Separator className="bg-white/10" />
-
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 px-5"
-                onClick={() => setIsEditOpen(false)}
-              >
+            <div className="flex justify-end gap-2 pt-4">
+              <Button type="button" className="bg-[#fffff] hover:bg-[#ffff]" variant="outline" onClick={() => setIsEditOpen(false)}>
                 Cancelar
               </Button>
-              <Button
-                type="submit"
-                className="h-11 bg-[#822727] px-5 text-base hover:bg-[#9b2f2f]"
-              >
-                Guardar cambios
+              <Button type="submit" className="bg-[#822727] hover:bg-[#9b2f2f]">
+                Actualizar
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => (!open ? setDeleteTarget(null) : null)}
-      >
+      {/* ALERT DELETE */}
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={() => setDeleteTarget(null)}>
         <AlertDialogContent className="border border-white/10 bg-[#161616] text-white">
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar eliminacion</AlertDialogTitle>
+            <AlertDialogTitle>¿Eliminar producto?</AlertDialogTitle>
             <AlertDialogDescription className="text-white/55">
-              {`Estas seguro de eliminar ${
-                deleteTarget?.name ?? "este producto"
-              }? Esta accion no se puede deshacer.`}
+              Esta acción eliminará permanentemente <strong>{deleteTarget?.name}</strong> de la base de datos.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="bg-transparent border-t-0">
-            <AlertDialogCancel
-              variant="outline"
-              className="text-black hover:text-black"
-            >
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-[#822727] hover:bg-[#9b2f2f]"
-              onClick={confirmDelete}
-            >
-              Si, eliminar
+          <AlertDialogFooter>
+            <AlertDialogCancel className="text-black">Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-[#822727] hover:bg-[#9b2f2f]" onClick={confirmDelete}>
+              Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   );
+
 }
 
 export default Products;
