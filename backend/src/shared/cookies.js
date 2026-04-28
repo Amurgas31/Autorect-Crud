@@ -29,7 +29,7 @@ const MS = {
 export const setAuthCookies = (res, accessToken, refreshToken) => {
   res.cookie(COOKIE_NAMES.ACCESS, accessToken, {
     ...BASE_OPTIONS,
-    maxAge: MS.FIVE_MIN, // acceso corto
+    maxAge: MS.ONE_HOUR, // acceso corto
   });
   res.cookie(COOKIE_NAMES.REFRESH, refreshToken, {
     ...BASE_OPTIONS,

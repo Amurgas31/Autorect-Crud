@@ -61,18 +61,19 @@ import { useAuth } from "@/hooks/useAuth"; // Hook personalizado para autenticac
 
 const TOKEN_KEY = "accessToken"; // Clave para almacenar el token de acceso en localStorage
 
-const getStoredToken = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY); // Función para obtener el token almacenado en localStorage
+const getStoredToken = () =>
+  localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY); // Función para obtener el token almacenado en localStorage
 
+// ☆ Para que el formulario de productos este limpio
 const emptyProductForm = {
   name: "",
-  category: "Accesorios",
   stock: "0",
   price: "",
   status: "stable",
-  sku: "",
-  supplier: "",
+  description: "",
 };
 
+// ☆ Opciones para filtrar el estado en base al stock
 const statusFilterOptions = [
   { value: "all", label: "Todos los estados" },
   { value: "top", label: "Top" },
@@ -80,19 +81,7 @@ const statusFilterOptions = [
   { value: "low", label: "Stock bajo" },
 ];
 
-const categoryFilterOptions = [
-  { value: "all", label: "Todas las categorias" },
-  { value: "accesorios", label: "Accesorios" },
-  { value: "tecnologia", label: "Tecnologia" },
-  { value: "pantallas", label: "Pantallas" },
-  { value: "conectividad", label: "Conectividad" },
-  { value: "almacenamiento", label: "Almacenamiento" },
-  { value: "audio", label: "Audio" },
-  { value: "mobiliario", label: "Mobiliario" },
-  { value: "video", label: "Video" },
-  { value: "redes", label: "Redes" },
-];
-
+// ☆ Opciones para filtrar los productos ya sea por su nombre, precio o stock
 const sortOptions = [
   { value: "name-asc", label: "Nombre A-Z" },
   { value: "name-desc", label: "Nombre Z-A" },
@@ -102,15 +91,11 @@ const sortOptions = [
   { value: "stock-asc", label: "Stock menor" },
 ];
 
-const statusLabelMap = {
-  top: "Top",
-  stable: "Estable",
-  low: "Bajo",
-};
-
+// ☆ Estilos del badge para el estado
 const badgeCellClassName =
   "inline-flex h-7 min-w-24 justify-center rounded-full px-3 text-center text-xs font-semibold";
 
+// ☆ Validaciones
 const formatPrice = (value) =>
   new Intl.NumberFormat("es-SV", {
     style: "currency",
@@ -132,33 +117,39 @@ const validateProductForm = (form) => {
   return errors;
 };
 
-
 // ☆ Normalización de producto: convierte el producto recibido del backend a un formato consistente para el frontend
-const normalizeProduct = (product = {}) => ({
-  id: product._id || product.id || "",
-  name: product.name || "",
-  description: product.description || "",
-  stock: Number(product.stock || 0),
-  // IMPORTANTE: Para Decimal128 de MongoDB, a veces llega como { $numberDecimal: "10.00" }
-  price: product.price?.$numberDecimal
-    ? parseFloat(product.price.$numberDecimal)
-    : Number(product.price || 0),
-});
+const normalizeProduct = (product = {}) => {
+  const stock = Number(product.stock || 0);
+
+  // Lógica de cálculo de estado dinámico debido a que ese no se guarda en el backend y es puramente un indicador del frontend
+  let calculatedStatus = "stable";
+  if (stock <= 10) {
+    calculatedStatus = "low";
+  } else if (stock >= 100) {
+    calculatedStatus = "top";
+  }
+
+  return {
+    id: product._id || product.id || "",
+    name: product.name || "",
+    description: product.description || "",
+    stock: stock,
+    price: product.price?.$numberDecimal
+      ? parseFloat(product.price.$numberDecimal)
+      : Number(product.price || 0),
+    status: calculatedStatus,
+  };
+};
 
 function Products() {
-
   // ☆ Obtener la URL de la API y la función de logout desde el hook de autenticación
   const { API, logout } = useAuth();
-
-  // ☆ Definir la URL base de la API para productos.
-  const API_URL = "http://localhost:4000/api/products";
 
   // ☆ Estado para almacenar la lista de productos obtenidos del backend. Empezamos con un array vacío para no cargar los datos quemados.
   const [products, setProducts] = useState([]); // Empezamos vacío
   const [loading, setLoading] = useState(true); // Estado de carga inicial
 
-  /*   const [products, setProducts] = useState(initialProducts);
-  const [loading] = useState(false); */
+  // ☆ Funciones para componentes del front
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -173,40 +164,44 @@ function Products() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sortBy, setSortBy] = useState("name-asc");
 
+  // ☆ La cantidad de registros por página en la paginación
   const rowsPerPage = 10;
 
+  // ☆ Get de los productos
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const token = getStoredToken(); // Usamos la función de arriba
+      const token = getStoredToken(); // ☆ Usamos la función de arriba
 
       if (!token) {
-        // Si no hay token, no seguimos para evitar el 401 innecesario
+        // ☆ Si no hay token
         console.warn("No se encontró token de acceso");
         return;
       }
 
+      // ☆ Se hace el fetch para obtener los productos
       const response = await fetch(`${API}/products`, {
-        method: "GET",
+        method: "GET", // ☆ indicamos que estamos haciendo un get
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}` // Asegúrate de que lleva la palabra 'Bearer '
+          Authorization: `Bearer ${token}`, // ☆ Mandamos el token para tener la autorización
         },
-        credentials: "include",
+        credentials: "include", // ☆ Incluimos nuestras credenciales
       });
 
       if (response.status === 401) {
-        toast.error("Sesión expirada");
+        toast.error("Sesión expirada"); // ☆ Toast que indica
         await logout({ reason: "expired", callApi: false });
         return;
       }
 
-      const payload = await response.json();
+      const payload = await response.json(); // ☆ Información que nos regresa el backend, en la respuesta a la petición
 
-      // Usamos payload.data porque así lo vimos en el Dashboard
-      const result = Array.isArray(payload?.data) ? payload.data.map(normalizeProduct) : [];
-      setProducts(result);
-
+      // ☆ Usamos payload.data porque nos regresa el array de productos
+      const result = Array.isArray(payload?.data)
+        ? payload.data.map(normalizeProduct)
+        : [];
+      setProducts(result); // ☆ Con los productos hacemos que se genere cada fila con sus datos
     } catch (error) {
       console.error("Error en el fetch:", error);
       setProducts([]);
@@ -216,6 +211,7 @@ function Products() {
   };
 
   useEffect(() => {
+    // ☆ useEffect es un Hook de React que permite ejecutar "efectos secundarios" en componentes funcionales, como obtener datos de una API, manipular el DOM manualmente, configurar suscripciones o temporizadores, y guardar en el almacenamiento local
     fetchProducts();
   }, []);
 
@@ -225,27 +221,26 @@ function Products() {
     const term = searchText.trim().toLowerCase();
 
     const matches = products.filter((item) => {
-      // ☆ 1. Buscamos coincidencias en Nombre e ID (que siempre existen)
+      // ☆ Buscamos coincidencias en Nombre e ID (que siempre existen)
       const nameMatch = item.name?.toLowerCase().includes(term);
       const idMatch = item.id?.toString().toLowerCase().includes(term);
 
-      // ☆ 2. Buscamos en la descripción (opcional)
+      // ☆ Buscamos en la descripción (opcional)
       const descriptionMatch = item.description?.toLowerCase().includes(term);
 
-      // ☆ 3. Si quieres que busque también en categoría, asegúrate de que el campo exista
-      const categoryMatch = item.category?.toLowerCase().includes(term);
+      // ☆ Combinamos las búsquedas: si el término está en cualquiera de esos campos, es un match
+      const bySearch = !term || nameMatch || idMatch || descriptionMatch;
 
-      // Combinamos las búsquedas: si el término está en cualquiera de esos campos, es un match
-      const bySearch = !term || nameMatch || idMatch || descriptionMatch || categoryMatch;
-
-      // Filtros adicionales (Estado y Categoría de los selectores)
+      // ☆ Filtros adicionales (Estado de los selectores)
       const byStatus = statusFilter === "all" || item.status === statusFilter;
-      const byCategory = categoryFilter === "all" ||
+      const byCategory =
+        categoryFilter === "all" ||
         item.category?.toLowerCase() === categoryFilter.toLowerCase();
 
       return bySearch && byStatus && byCategory;
     });
 
+    // ☆ Filtros adicionales para los nombres por A-Z y otros para que sea ascendente y descendente
     return [...matches].sort((first, second) => {
       switch (sortBy) {
         case "name-desc":
@@ -271,61 +266,59 @@ function Products() {
 
   const totalPages = Math.max(
     1,
-    Math.ceil(filteredProducts.length / rowsPerPage)
+    Math.ceil(filteredProducts.length / rowsPerPage) // ☆ Paginación
   );
   const paginatedProducts = useMemo(() => {
+    // ☆ Paginación
     const start = (currentPage - 1) * rowsPerPage;
     return filteredProducts.slice(start, start + rowsPerPage);
   }, [currentPage, filteredProducts]);
 
-  const topCount = (products || []).filter(
-    (item) => item.status === "top"
-  ).length;
-  const stableCount = (products || []).filter(
+  // ☆ Cambio de un array vacio a seleccionar el item que viene de statusFilter
+  const topCount = products.filter((item) => item.status === "top").length;
+  const stableCount = products.filter(
     (item) => item.status === "stable"
   ).length;
-  const lowCount = (products || []).filter(
-    (item) => item.status === "low"
-  ).length;
+  const lowCount = products.filter((item) => item.status === "low").length;
 
   useEffect(() => {
+    // ☆ useEffect es un Hook de React que permite ejecutar "efectos secundarios" en componentes funcionales, como obtener datos de una API, manipular el DOM manualmente, configurar suscripciones o temporizadores, y guardar en el almacenamiento local
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
 
   useEffect(() => {
+    // ☆ useEffect es un Hook de React que permite ejecutar "efectos secundarios" en componentes funcionales, como obtener datos de una API, manipular el DOM manualmente, configurar suscripciones o temporizadores, y guardar en el almacenamiento local
     setExpandedRowId(null);
   }, [currentPage]);
 
   useEffect(() => {
+    // ☆ useEffect es un Hook de React que permite ejecutar "efectos secundarios" en componentes funcionales, como obtener datos de una API, manipular el DOM manualmente, configurar suscripciones o temporizadores, y guardar en el almacenamiento local
     setCurrentPage(1);
   }, [searchText, statusFilter, categoryFilter, sortBy]);
 
-  const hasActiveFilters =
-    searchText.trim().length > 0 ||
-    statusFilter !== "all" ||
-    categoryFilter !== "all" ||
-    sortBy !== "name-asc";
-
+  // ☆ Sepa la bola
   const toggleExpandRow = (rowId) => {
     setExpandedRowId((prev) => (prev === rowId ? null : rowId));
   };
 
+  // ☆ Seleccionar el producto a eliminar
   const requestDelete = (product) => {
     setDeleteTarget(product);
   };
 
+  // ☆ Confirmar la eliminación del producto
   const confirmDelete = async () => {
     if (!deleteTarget) return;
 
     try {
-      const token = getStoredToken();
+      const token = getStoredToken(); // ☆ leer el token
 
       const response = await fetch(`${API}/products/${deleteTarget.id}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${token}`,
+        method: "DELETE", // ☆ metodo
+        headers: { 
+          Authorization: `Bearer ${token}`, // ☆ mandamos el token
         },
       });
 
@@ -340,23 +333,22 @@ function Products() {
         throw new Error(errorData.message || "No se pudo eliminar el producto");
       }
 
-      // Éxito: Actualizamos el estado local para que desaparezca de inmediato
+      // ☆ Éxito: Recargamos la lista de productos para que desaparezca de inmediato
       setProducts((prev) => prev.filter((item) => item.id !== deleteTarget.id));
       setExpandedRowId((prev) => (prev === deleteTarget.id ? null : prev));
       setDeleteTarget(null);
       toast.success("Producto eliminado permanentemente");
-
     } catch (error) {
       console.error("Error en DELETE:", error);
       toast.error(error.message);
-      setDeleteTarget(null); // Cerramos el modal de todas formas si hubo error
+      setDeleteTarget(null); // ☆ Cerramos el modal de todas formas si hubo error
     }
   };
 
-  const openEditModal = (product) => {
+  const openEditModal = (product) => { // ☆ función para abrir el modal de editar
     setEditForm({
       ...product,
-      stock: String(product.stock),
+      stock: String(product.stock), // ☆ Parsear stock y price para el modal
       price: String(product.price),
     });
     setIsEditOpen(true);
@@ -365,35 +357,31 @@ function Products() {
   const handleCreateSubmit = async (event) => {
     event.preventDefault();
 
-    // ☆ 1. Validamos los errores del formulario de creación
+    // ☆ Validamos los errores del formulario de creación
     const errors = validateProductForm(createForm);
     setCreateErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     try {
-      const token = getStoredToken();
+      const token = getStoredToken(); // ☆ Obtenemos el token
 
-      // ☆ 2. Petición POST a la API
+      // ☆ Petición POST a la API
       const response = await fetch(`${API}/products`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: createForm.name.trim(),
-          category: createForm.category,
           stock: Number(createForm.stock),
           price: Number(createForm.price),
           status: createForm.status,
-          sku: createForm.sku.trim(),
-          supplier: createForm.supplier.trim(),
-          // Si tu backend requiere 'description', agrégala aquí aunque sea vacía
-          description: "",
+          description: createForm.description.trim(),
         }),
       });
 
-      // ☆ 3. Manejo de autorización
+      // ☆ Manejo de autorización
       if (response.status === 401) {
         toast.error("Sesión expirada");
         await logout({ reason: "expired", callApi: false });
@@ -411,7 +399,6 @@ function Products() {
       setCreateForm(emptyProductForm); // Limpiamos el formulario
       setCreateErrors({});
       fetchProducts(); // Recargamos la tabla para ver el nuevo producto
-
     } catch (error) {
       console.error("Error en POST:", error);
       toast.error(error.message);
@@ -442,14 +429,14 @@ function Products() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: editForm.name.trim(),
           description: editForm.description.trim(), // Aseguramos que la descripción se guarde
           category: editForm.category,
           stock: Number(editForm.stock),
-          price: Number(editForm.price)
+          price: Number(editForm.price),
         }),
       });
 
@@ -468,7 +455,6 @@ function Products() {
       setIsEditOpen(false);
       setEditErrors({});
       fetchProducts(); // Recargamos la lista desde el backend
-
     } catch (error) {
       console.error("Error en PUT:", error);
       toast.error(error.message);
@@ -478,7 +464,7 @@ function Products() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 pb-3">
       <div className="space-y-3 rounded-[28px] border border-white/8 bg-black/20 px-4 py-4 shadow-[0_16px_45px_rgba(0,0,0,0.18)] backdrop-blur-sm">
-        <div className="grid gap-3 xl:grid-cols-[1fr_220px_auto]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_220px_220px_230px_auto]">
           <InputGroup className="h-10 rounded-full border-white/15 bg-black/25 text-white shadow-none">
             <InputGroupAddon className="pl-4 text-white/35">
               <Search className="h-4 w-4" />
@@ -490,6 +476,15 @@ function Products() {
               className="h-10 rounded-full border-0 bg-transparent text-white placeholder:text-white/35"
             />
           </InputGroup>
+
+          <Combobox
+            value={statusFilter}
+            onValueChange={setStatusFilter}
+            options={statusFilterOptions}
+            placeholder="Filtrar por estado"
+            searchPlaceholder="Buscar estado..."
+            icon={<ChevronDown className="h-4 w-4" />}
+          />
 
           <Combobox
             value={sortBy}
@@ -522,60 +517,75 @@ function Products() {
                   <TableHead className="text-white/45">Precio</TableHead>
                   <TableHead className="text-white/45">Stock</TableHead>
                   <TableHead className="text-white/45">Estado</TableHead>
-                  <TableHead className="w-32 text-right text-white/45">Acciones</TableHead>
+                  <TableHead className="w-32 text-right text-white/45">
+                    Acciones
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {!loading && paginatedProducts.map((item, index) => (
-                  <TableRow key={item.id} className="border-white/10 hover:bg-white/4">
-                    <TableCell className="text-white/65">
-                      {(currentPage - 1) * rowsPerPage + index + 1}
-                    </TableCell>
-                    <TableCell className="font-medium text-white">
-                      <span className="inline-flex items-center gap-2">
-                        <Box className="h-4 w-4 text-[#822727]" />
-                        {item.name}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-white/65 truncate max-w-[200px]">
-                      {item.description || "Sin descripción"}
-                    </TableCell>
-                    <TableCell className="text-white/65">
-                      {formatPrice(item.price)}
-                    </TableCell>
-                    <TableCell className="text-white/65">
-                      {item.stock} unidades
-                    </TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.stock <= 5
-                        ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                        : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                        }`}>
-                        {item.stock <= 5 ? "Stock bajo" : "Disponible"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="h-8 w-8 rounded-md border border-white/15 text-white/70 hover:bg-white/10"
-                          onClick={() => openEditModal(item)}
+                {!loading &&
+                  paginatedProducts.map((item, index) => (
+                    <TableRow
+                      key={item.id}
+                      className="border-white/10 hover:bg-white/4"
+                    >
+                      <TableCell className="text-white/65">
+                        {(currentPage - 1) * rowsPerPage + index + 1}
+                      </TableCell>
+                      <TableCell className="font-medium text-white">
+                        <span className="inline-flex items-center gap-2">
+                          <Box className="h-4 w-4 text-[#822727]" />
+                          {item.name}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-white/65 truncate max-w-[200px]">
+                        {item.description || "Sin descripción"}
+                      </TableCell>
+                      <TableCell className="text-white/65">
+                        {formatPrice(item.price)}
+                      </TableCell>
+                      <TableCell className="text-white/65">
+                        {item.stock} unidades
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={`${badgeCellClassName} ${
+                            item.status === "top"
+                              ? "bg-green-500/20 text-green-400"
+                              : item.status === "low"
+                              ? "bg-red-500/20 text-red-400"
+                              : "bg-blue-500/20 text-blue-400"
+                          }`}
                         >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="h-8 w-8 rounded-md border border-[#822727]/35 bg-[#822727]/10 text-[#ff8f8f] hover:bg-[#822727]/20"
-                          onClick={() => requestDelete(item)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                          {item.status === "low"
+                            ? "Stock Bajo"
+                            : item.status === "top"
+                            ? "Top"
+                            : "Estable"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="h-8 w-8 rounded-md border border-white/15 text-white/70 hover:bg-white/10"
+                            onClick={() => openEditModal(item)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="h-8 w-8 rounded-md border border-[#822727]/35 bg-[#822727]/10 text-[#ff8f8f] hover:bg-[#822727]/20"
+                            onClick={() => requestDelete(item)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
               </TableBody>
             </Table>
           </div>
@@ -583,7 +593,23 @@ function Products() {
       </Card>
 
       {/* MODAL CREAR: Solo campos del model */}
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+      <Dialog
+        open={isCreateOpen}
+        onOpenChange={(open) => {
+          setIsCreateOpen(open);
+          if (!open) {
+            // Aquí reseteas tu estado al valor inicial
+            setCreateForm({
+              name: "",
+              description: "",
+              price: "",
+              stock: "",
+            });
+            // También es buena práctica limpiar errores si los tienes
+            setCreateErrors({});
+          }
+        }}
+      >
         <DialogContent className="border border-white/10 bg-[#161616] text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Nuevo producto</DialogTitle>
@@ -595,7 +621,9 @@ function Products() {
                 id="create-name"
                 className="h-11"
                 value={createForm.name}
-                onChange={(e) => setCreateForm(prev => ({ ...prev, name: e.target.value }))}
+                onChange={(e) =>
+                  setCreateForm((prev) => ({ ...prev, name: e.target.value }))
+                }
                 placeholder="Ej. Laptop X14"
               />
             </div>
@@ -606,20 +634,39 @@ function Products() {
                 className="flex w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm"
                 rows={3}
                 value={createForm.description}
-                onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Ingrese una descripción..."
+                onChange={(e) =>
+                  setCreateForm((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="create-price">Precio</Label>
+                <Label htmlFor="create-price">Precio (USD)</Label>
                 <Input
                   id="create-price"
-                  type="number"
-                  step="0.01"
                   className="h-11"
+                  type="number"
+                  min="0"
+                  step="0.01"
                   value={createForm.price}
-                  onChange={(e) => setCreateForm(prev => ({ ...prev, price: e.target.value }))}
+                  onChange={(event) => {
+                    setCreateForm((prev) => ({
+                      ...prev,
+                      price: event.target.value,
+                    }));
+                    if (createErrors.price)
+                      setCreateErrors((prev) => ({ ...prev, price: "" }));
+                  }}
+                  placeholder="0.00"
+                  aria-invalid={!!createErrors.price}
                 />
+                {createErrors.price && (
+                  <p className="text-xs text-red-500">{createErrors.price}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="create-stock">Stock</Label>
@@ -628,12 +675,22 @@ function Products() {
                   type="number"
                   className="h-11"
                   value={createForm.stock}
-                  onChange={(e) => setCreateForm(prev => ({ ...prev, stock: e.target.value }))}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({
+                      ...prev,
+                      stock: e.target.value,
+                    }))
+                  }
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" className="text-black" onClick={() => setIsCreateOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                className="text-black"
+                onClick={() => setIsCreateOpen(false)}
+              >
                 Cancelar
               </Button>
               <Button type="submit" className="bg-[#822727] hover:bg-[#9b2f2f]">
@@ -657,7 +714,9 @@ function Products() {
                 id="edit-name"
                 className="h-11"
                 value={editForm.name}
-                onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, name: e.target.value }))
+                }
               />
             </div>
             <div className="space-y-1.5">
@@ -667,19 +726,33 @@ function Products() {
                 className="flex w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm"
                 rows={3}
                 value={editForm.description}
-                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="edit-price">Precio</Label>
+                <Label htmlFor="edit-price">Precio (USD)</Label>
                 <Input
                   id="edit-price"
-                  type="number"
-                  step="0.01"
                   className="h-11"
+                  type="number"
+                  min="0"
+                  step="0.01"
                   value={editForm.price}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, price: e.target.value }))}
+                  onChange={(event) => {
+                    setEditForm((prev) => ({
+                      ...prev,
+                      price: event.target.value,
+                    }));
+                    if (editErrors.price)
+                      setEditErrors((prev) => ({ ...prev, price: "" }));
+                  }}
+                  aria-invalid={!!editErrors.price}
                 />
               </div>
               <div className="space-y-1.5">
@@ -689,12 +762,19 @@ function Products() {
                   type="number"
                   className="h-11"
                   value={editForm.stock}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, stock: e.target.value }))}
+                  onChange={(e) =>
+                    setEditForm((prev) => ({ ...prev, stock: e.target.value }))
+                  }
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" className="bg-[#fffff] hover:bg-[#ffff]" variant="outline" onClick={() => setIsEditOpen(false)}>
+              <Button
+                type="button"
+                className="bg-[#fffff] hover:bg-[#ffff]"
+                variant="outline"
+                onClick={() => setIsEditOpen(false)}
+              >
                 Cancelar
               </Button>
               <Button type="submit" className="bg-[#822727] hover:bg-[#9b2f2f]">
@@ -706,17 +786,26 @@ function Products() {
       </Dialog>
 
       {/* ALERT DELETE */}
-      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={() => setDeleteTarget(null)}>
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={() => setDeleteTarget(null)}
+      >
         <AlertDialogContent className="border border-white/10 bg-[#161616] text-white">
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar producto?</AlertDialogTitle>
             <AlertDialogDescription className="text-white/55">
-              Esta acción eliminará permanentemente <strong>{deleteTarget?.name}</strong> de la base de datos.
+              Esta acción eliminará permanentemente{" "}
+              <strong>{deleteTarget?.name}</strong> de la base de datos.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="text-black">Cancelar</AlertDialogCancel>
-            <AlertDialogAction className="bg-[#822727] hover:bg-[#9b2f2f]" onClick={confirmDelete}>
+            <AlertDialogCancel className="text-black">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-[#822727] hover:bg-[#9b2f2f]"
+              onClick={confirmDelete}
+            >
               Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -724,7 +813,6 @@ function Products() {
       </AlertDialog>
     </div>
   );
-
 }
 
 export default Products;
