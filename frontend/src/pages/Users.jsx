@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, useCallback } from "react";
 import { ArrowUpDown, CalendarRange, ChevronDown, ChevronUp, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -120,6 +120,8 @@ const getNextBirthdayDistance = (birthDateValue) => {
 };
 
 function Users() {
+  // ☆ Obtener la URL de la API y la función de logout desde el hook de autenticación
+  const { API, logout } = useAuth();
   const { user: authUser } = useAuth();
   const {
     users,
